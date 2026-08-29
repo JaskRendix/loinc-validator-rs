@@ -1,0 +1,16 @@
+# Build artifacts
+target/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Editor / IDE general files
+.idea/
+*.swp
+*.swo
+
+# Cargo environment local overrides
+.cargo/
