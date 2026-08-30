@@ -5,6 +5,15 @@ use std::collections::HashSet;
 const MAPPING_JSON: &str = include_str!("data/unit_to_ucum_mapping.json");
 const LOINC_JSON: &str = include_str!("data/loinc_unit.json");
 
+static SYNONYMS: &[(&str, &str)] = &[
+    ("milligrams", "mg"),
+    ("grams", "g"),
+    ("liters", "l"),
+    ("milliliters", "ml"),
+    ("cells", "{cells}"),
+    ("percent", "%"),
+];
+
 pub fn get_validator() -> Result<LoincValidator, Box<dyn std::error::Error>> {
     LoincValidator::new(LOINC_JSON, MAPPING_JSON)
 }
@@ -133,8 +142,22 @@ impl LoincValidator {
         self.loinc_version.as_deref()
     }
 
+    fn normalize_loinc(&self, loinc: &str) -> String {
+        loinc.trim().replace('\u{00A0}', "").to_string()
+    }
+
+    fn is_valid_ucum(&self, unit: &str) -> bool {
+        !unit.is_empty() && ucum::validate(unit).is_ok()
+    }
+
+    fn lookup_substitution(&self, unit: &str) -> Option<String> {
+        let lower = unit.to_lowercase();
+        self.units_to_ucum.get(&lower).cloned()
+    }
+
     fn analyze_unit(&self, trimmed_unit: &str) -> UnitAnalysis {
-        if trimmed_unit.is_empty() {
+        // 1. Empty unit
+        if trimmed_unit.trim().is_empty() {
             return UnitAnalysis {
                 status: UnitVldStatus::MissingUnit,
                 substituted: None,
@@ -146,55 +169,81 @@ impl LoincValidator {
             };
         }
 
-        let is_bracketed = trimmed_unit.starts_with('{') && trimmed_unit.ends_with('}');
+        // 2. Normalize Unicode whitespace + invisible chars
+        let mut unit = trimmed_unit.trim().replace('\u{00A0}', " "); // non-breaking space
+        unit = unit.replace('\t', " ");
+        unit = unit.replace('\r', "");
+        unit = unit.replace('\n', "");
+
+        // 3. Strip trailing punctuation (common Excel/ETL artifact)
+        unit = unit.trim_end_matches(['.', ',', ';']).to_string();
+
+        // 4. Handle bracketed UCUM units: {cells} → cells
+        let is_bracketed = unit.starts_with('{') && unit.ends_with('}');
         let inner_raw = if is_bracketed {
-            &trimmed_unit[1..trimmed_unit.len() - 1]
+            &unit[1..unit.len() - 1]
         } else {
-            trimmed_unit
+            &unit
         };
         let inner = inner_raw.trim();
 
-        if !inner.is_empty() && ucum::validate(inner).is_ok() {
+        // 5. Canonical lowercase version
+        let lower_inner = inner.to_lowercase();
+
+        // 6. Synonym mapping (expandable)
+        let normalized_inner = SYNONYMS
+            .iter()
+            .find_map(|(syn, canon)| {
+                if lower_inner == *syn {
+                    Some((*canon).to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| inner.to_string());
+
+        // 7. UCUM validation
+        if self.is_valid_ucum(&normalized_inner) {
             return UnitAnalysis {
                 status: UnitVldStatus::VALID,
                 substituted: None,
-                active_unit: inner.to_string(),
+                active_unit: normalized_inner.trim().to_string(),
             };
         }
 
+        // 8. Strict mode: no fallback, no substitution
         if self.strict {
             return UnitAnalysis {
                 status: UnitVldStatus::InvalidUnknown,
                 substituted: None,
-                active_unit: inner.to_string(),
+                active_unit: normalized_inner.trim().to_string(),
             };
         }
 
-        let lower_unit = trimmed_unit.to_lowercase();
-        let lower_inner = inner.to_lowercase();
-
+        // 9. Non-strict mode: try substitution map
         let mapped = self
-            .units_to_ucum
-            .get(&lower_unit)
-            .or_else(|| self.units_to_ucum.get(&lower_inner));
+            .lookup_substitution(&unit)
+            .or_else(|| self.lookup_substitution(&lower_inner))
+            .or_else(|| self.lookup_substitution(&normalized_inner));
 
         if let Some(mapped_val) = mapped {
-            UnitAnalysis {
+            return UnitAnalysis {
                 status: UnitVldStatus::InvalidFixed,
                 substituted: Some(mapped_val.clone()),
-                active_unit: mapped_val.clone(),
-            }
-        } else {
-            UnitAnalysis {
-                status: UnitVldStatus::InvalidUnknown,
-                substituted: None,
-                active_unit: inner.to_string(),
-            }
+                active_unit: mapped_val.trim().to_string(),
+            };
+        }
+
+        // 10. Unknown unit
+        UnitAnalysis {
+            status: UnitVldStatus::InvalidUnknown,
+            substituted: None,
+            active_unit: normalized_inner.trim().to_string(),
         }
     }
 
     pub fn validate_loinc_unit(&self, loinc: &str, unit: &str) -> ValidationResult {
-        let trimmed_loinc = loinc.trim();
+        let trimmed_loinc = self.normalize_loinc(loinc);
         let trimmed_unit = unit.trim();
 
         let analysis = self.analyze_unit(trimmed_unit);
@@ -215,7 +264,7 @@ impl LoincValidator {
             };
         }
 
-        let loinc_status = match self.loinc_to_units.get(trimmed_loinc) {
+        let loinc_status = match self.loinc_to_units.get(trimmed_loinc.as_str()) {
             None => Some(LoincVldStatus::UNKNOWN),
             Some(units_set) => {
                 if analysis.status == UnitVldStatus::InvalidUnknown {
