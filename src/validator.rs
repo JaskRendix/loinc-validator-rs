@@ -2,6 +2,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+use crate::config::ValidatorConfig;
 use crate::loader::{LoadedData, load_all};
 use crate::unit_analysis::{UnitAnalysis, analyze_unit};
 
@@ -68,19 +69,19 @@ pub struct ValidationResult {
 pub struct LoincValidator {
     loinc_to_units: FxHashMap<String, HashSet<String>>,
     units_to_ucum: FxHashMap<String, String>,
-    strict: bool,
+    config: ValidatorConfig,
     loinc_version: Option<String>,
 }
 
 impl LoincValidator {
     pub fn new(loinc_json: &str, mapping_json: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::new_with_strict(loinc_json, mapping_json, false)
+        Self::new_with_config(loinc_json, mapping_json, ValidatorConfig::default())
     }
 
-    pub fn new_with_strict(
+    pub fn new_with_config(
         loinc_json: &str,
         mapping_json: &str,
-        strict: bool,
+        config: ValidatorConfig,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let LoadedData {
             loinc_to_units,
@@ -91,18 +92,31 @@ impl LoincValidator {
         Ok(Self {
             loinc_to_units,
             units_to_ucum,
-            strict,
+            config,
             loinc_version,
         })
     }
 
+    pub fn new_with_strict(
+        loinc_json: &str,
+        mapping_json: &str,
+        strict: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let cfg = ValidatorConfig {
+            strict,
+            ..ValidatorConfig::default()
+        };
+
+        Self::new_with_config(loinc_json, mapping_json, cfg)
+    }
+
     pub fn with_strict(mut self, strict: bool) -> Self {
-        self.strict = strict;
+        self.config.strict = strict;
         self
     }
 
     pub fn set_strict(&mut self, strict: bool) {
-        self.strict = strict;
+        self.config.strict = strict;
     }
 
     pub fn loinc_version(&self) -> Option<&str> {
@@ -117,10 +131,10 @@ impl LoincValidator {
         let trimmed_loinc = self.normalize_loinc(loinc);
         let trimmed_unit = unit.trim();
 
-        let analysis: UnitAnalysis = analyze_unit(trimmed_unit, self.strict, &self.units_to_ucum);
+        let analysis: UnitAnalysis = analyze_unit(trimmed_unit, &self.config, &self.units_to_ucum);
 
         if trimmed_loinc.is_empty() {
-            let loinc_status = if self.strict {
+            let loinc_status = if self.config.strict {
                 Some(LoincVldStatus::INCORRECT)
             } else {
                 Some(LoincVldStatus::MissingLoinc)
@@ -139,7 +153,7 @@ impl LoincValidator {
             None => Some(LoincVldStatus::UNKNOWN),
             Some(units_set) => {
                 if analysis.status == UnitVldStatus::InvalidUnknown {
-                    if self.strict {
+                    if self.config.strict {
                         Some(LoincVldStatus::INCORRECT)
                     } else {
                         Some(LoincVldStatus::UNKNOWN)

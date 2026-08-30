@@ -1,5 +1,6 @@
 use rustc_hash::FxHashMap;
 
+use crate::config::ValidatorConfig;
 use crate::validator::UnitVldStatus;
 
 pub struct UnitAnalysis {
@@ -8,6 +9,7 @@ pub struct UnitAnalysis {
     pub active_unit: String,
 }
 
+/// Simple synonym table for common non‑UCUM unit labels.
 pub static SYNONYMS: &[(&str, &str)] = &[
     ("milligrams", "mg"),
     ("grams", "g"),
@@ -28,7 +30,7 @@ fn lookup_substitution(unit: &str, units_to_ucum: &FxHashMap<String, String>) ->
 
 pub fn analyze_unit(
     trimmed_unit: &str,
-    strict: bool,
+    config: &ValidatorConfig,
     units_to_ucum: &FxHashMap<String, String>,
 ) -> UnitAnalysis {
     // 1. Empty unit
@@ -36,7 +38,7 @@ pub fn analyze_unit(
         return UnitAnalysis {
             status: UnitVldStatus::MissingUnit,
             substituted: None,
-            active_unit: if strict {
+            active_unit: if config.strict {
                 "__MISSING__".to_string()
             } else {
                 String::new()
@@ -87,7 +89,7 @@ pub fn analyze_unit(
     }
 
     // 8. Strict mode: no fallback, no substitution
-    if strict {
+    if config.strict {
         return UnitAnalysis {
             status: UnitVldStatus::InvalidUnknown,
             substituted: None,
@@ -96,16 +98,18 @@ pub fn analyze_unit(
     }
 
     // 9. Non-strict mode: try substitution map
-    let mapped = lookup_substitution(&unit, units_to_ucum)
-        .or_else(|| lookup_substitution(&lower_inner, units_to_ucum))
-        .or_else(|| lookup_substitution(&normalized_inner, units_to_ucum));
+    if config.allow_substitution {
+        let mapped = lookup_substitution(&unit, units_to_ucum)
+            .or_else(|| lookup_substitution(&lower_inner, units_to_ucum))
+            .or_else(|| lookup_substitution(&normalized_inner, units_to_ucum));
 
-    if let Some(mapped_val) = mapped {
-        return UnitAnalysis {
-            status: UnitVldStatus::InvalidFixed,
-            substituted: Some(mapped_val.clone()),
-            active_unit: mapped_val.trim().to_string(),
-        };
+        if let Some(mapped_val) = mapped {
+            return UnitAnalysis {
+                status: UnitVldStatus::InvalidFixed,
+                substituted: Some(mapped_val.clone()),
+                active_unit: mapped_val.trim().to_string(),
+            };
+        }
     }
 
     // 10. Unknown unit
