@@ -131,8 +131,10 @@ impl LoincValidator {
         let trimmed_loinc = self.normalize_loinc(loinc);
         let trimmed_unit = unit.trim();
 
+        // NEW: analysis now includes canonicalization, synonyms, suggestions
         let analysis: UnitAnalysis = analyze_unit(trimmed_unit, &self.config, &self.units_to_ucum);
 
+        // Handle missing LOINC
         if trimmed_loinc.is_empty() {
             let loinc_status = if self.config.strict {
                 Some(LoincVldStatus::INCORRECT)
@@ -149,9 +151,12 @@ impl LoincValidator {
             };
         }
 
+        // LOINC lookup
         let loinc_status = match self.loinc_to_units.get(trimmed_loinc.as_str()) {
             None => Some(LoincVldStatus::UNKNOWN),
+
             Some(units_set) => {
+                // NEW: analysis.status now includes canonicalization + synonyms
                 if analysis.status == UnitVldStatus::InvalidUnknown {
                     if self.config.strict {
                         Some(LoincVldStatus::INCORRECT)

@@ -63,17 +63,6 @@ fn test_synonym_mapping() {
 
     for (loinc, unit, expected_unit_status, expected_loinc_status) in cases {
         let res = validator.validate_loinc_unit(loinc, unit);
-
-        println!(
-            "\nTEST CASE:\n  LOINC: {}\n  UNIT: {:?}\n  EXPECTED: {:?} / {:?}\n  GOT: {:?} / {:?}\n",
-            loinc,
-            unit,
-            expected_unit_status,
-            expected_loinc_status,
-            res.unit_status,
-            res.loinc_status
-        );
-
         assert_eq!(res.unit_status, expected_unit_status);
         assert_eq!(res.loinc_status, expected_loinc_status);
     }
@@ -106,17 +95,6 @@ fn test_synonym_mapping() {
 
     for (loinc, unit, expected_unit_status, expected_loinc_status) in strict_cases {
         let res = strict_validator.validate_loinc_unit(loinc, unit);
-
-        println!(
-            "\nSTRICT CASE:\n  LOINC: {}\n  UNIT: {:?}\n  EXPECTED: {:?} / {:?}\n  GOT: {:?} / {:?}\n",
-            loinc,
-            unit,
-            expected_unit_status,
-            expected_loinc_status,
-            res.unit_status,
-            res.loinc_status
-        );
-
         assert_eq!(res.unit_status, expected_unit_status);
         assert_eq!(res.loinc_status, expected_loinc_status);
     }
