@@ -2,17 +2,11 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+use crate::loader::{LoadedData, load_all};
+use crate::unit_analysis::{UnitAnalysis, analyze_unit};
+
 const MAPPING_JSON: &str = include_str!("data/unit_to_ucum_mapping.json");
 const LOINC_JSON: &str = include_str!("data/loinc_unit.json");
-
-static SYNONYMS: &[(&str, &str)] = &[
-    ("milligrams", "mg"),
-    ("grams", "g"),
-    ("liters", "l"),
-    ("milliliters", "ml"),
-    ("cells", "{cells}"),
-    ("percent", "%"),
-];
 
 pub fn get_validator() -> Result<LoincValidator, Box<dyn std::error::Error>> {
     LoincValidator::new(LOINC_JSON, MAPPING_JSON)
@@ -78,12 +72,6 @@ pub struct LoincValidator {
     loinc_version: Option<String>,
 }
 
-struct UnitAnalysis {
-    status: UnitVldStatus,
-    substituted: Option<String>,
-    active_unit: String,
-}
-
 impl LoincValidator {
     pub fn new(loinc_json: &str, mapping_json: &str) -> Result<Self, Box<dyn std::error::Error>> {
         Self::new_with_strict(loinc_json, mapping_json, false)
@@ -94,32 +82,11 @@ impl LoincValidator {
         mapping_json: &str,
         strict: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let raw_loinc_map: FxHashMap<String, serde_json::Value> = serde_json::from_str(loinc_json)?;
-
-        let mut loinc_version = None;
-        let mut loinc_to_units = FxHashMap::default();
-        loinc_to_units.reserve(raw_loinc_map.len());
-
-        for (k, v) in raw_loinc_map {
-            if k == "version" {
-                loinc_version = v.as_str().map(|s| s.to_string());
-                continue;
-            }
-            if let Some(arr) = v.as_array() {
-                let units: HashSet<String> = arr
-                    .iter()
-                    .filter_map(|val| val.as_str().map(|s| s.trim().to_string()))
-                    .collect();
-                loinc_to_units.insert(k, units);
-            }
-        }
-
-        let raw_mapping: FxHashMap<String, String> = serde_json::from_str(mapping_json)?;
-        let mut units_to_ucum = FxHashMap::default();
-        units_to_ucum.reserve(raw_mapping.len());
-        for (k, v) in raw_mapping {
-            units_to_ucum.insert(k.to_lowercase(), v.trim().to_lowercase());
-        }
+        let LoadedData {
+            loinc_to_units,
+            units_to_ucum,
+            loinc_version,
+        } = load_all(loinc_json, mapping_json)?;
 
         Ok(Self {
             loinc_to_units,
@@ -146,107 +113,11 @@ impl LoincValidator {
         loinc.trim().replace('\u{00A0}', "").to_string()
     }
 
-    fn is_valid_ucum(&self, unit: &str) -> bool {
-        !unit.is_empty() && ucum::validate(unit).is_ok()
-    }
-
-    fn lookup_substitution(&self, unit: &str) -> Option<String> {
-        let lower = unit.to_lowercase();
-        self.units_to_ucum.get(&lower).cloned()
-    }
-
-    fn analyze_unit(&self, trimmed_unit: &str) -> UnitAnalysis {
-        // 1. Empty unit
-        if trimmed_unit.trim().is_empty() {
-            return UnitAnalysis {
-                status: UnitVldStatus::MissingUnit,
-                substituted: None,
-                active_unit: if self.strict {
-                    "__MISSING__".to_string()
-                } else {
-                    String::new()
-                },
-            };
-        }
-
-        // 2. Normalize Unicode whitespace + invisible chars
-        let mut unit = trimmed_unit.trim().replace('\u{00A0}', " "); // non-breaking space
-        unit = unit.replace('\t', " ");
-        unit = unit.replace('\r', "");
-        unit = unit.replace('\n', "");
-
-        // 3. Strip trailing punctuation (common Excel/ETL artifact)
-        unit = unit.trim_end_matches(['.', ',', ';']).to_string();
-
-        // 4. Handle bracketed UCUM units: {cells} → cells
-        let is_bracketed = unit.starts_with('{') && unit.ends_with('}');
-        let inner_raw = if is_bracketed {
-            &unit[1..unit.len() - 1]
-        } else {
-            &unit
-        };
-        let inner = inner_raw.trim();
-
-        // 5. Canonical lowercase version
-        let lower_inner = inner.to_lowercase();
-
-        // 6. Synonym mapping (expandable)
-        let normalized_inner = SYNONYMS
-            .iter()
-            .find_map(|(syn, canon)| {
-                if lower_inner == *syn {
-                    Some((*canon).to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| inner.to_string());
-
-        // 7. UCUM validation
-        if self.is_valid_ucum(&normalized_inner) {
-            return UnitAnalysis {
-                status: UnitVldStatus::VALID,
-                substituted: None,
-                active_unit: normalized_inner.trim().to_string(),
-            };
-        }
-
-        // 8. Strict mode: no fallback, no substitution
-        if self.strict {
-            return UnitAnalysis {
-                status: UnitVldStatus::InvalidUnknown,
-                substituted: None,
-                active_unit: normalized_inner.trim().to_string(),
-            };
-        }
-
-        // 9. Non-strict mode: try substitution map
-        let mapped = self
-            .lookup_substitution(&unit)
-            .or_else(|| self.lookup_substitution(&lower_inner))
-            .or_else(|| self.lookup_substitution(&normalized_inner));
-
-        if let Some(mapped_val) = mapped {
-            return UnitAnalysis {
-                status: UnitVldStatus::InvalidFixed,
-                substituted: Some(mapped_val.clone()),
-                active_unit: mapped_val.trim().to_string(),
-            };
-        }
-
-        // 10. Unknown unit
-        UnitAnalysis {
-            status: UnitVldStatus::InvalidUnknown,
-            substituted: None,
-            active_unit: normalized_inner.trim().to_string(),
-        }
-    }
-
     pub fn validate_loinc_unit(&self, loinc: &str, unit: &str) -> ValidationResult {
         let trimmed_loinc = self.normalize_loinc(loinc);
         let trimmed_unit = unit.trim();
 
-        let analysis = self.analyze_unit(trimmed_unit);
+        let analysis: UnitAnalysis = analyze_unit(trimmed_unit, self.strict, &self.units_to_ucum);
 
         if trimmed_loinc.is_empty() {
             let loinc_status = if self.strict {
