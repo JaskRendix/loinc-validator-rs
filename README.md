@@ -1,22 +1,51 @@
-# Loinc Mapping Validator (Rust Edition)
+# **Loinc Mapping Validator (Rust Edition)**  
+A fast, zero‑overhead Rust port of the official National Library of Medicine (NLM) **LOINC Mapping Validator**.  
+It checks whether clinical LOINC codes match their units — but with Rust‑level performance, streaming CSV handling, and a clean modular API.
 
-A high-performance Rust port of the official National Library of Medicine (NLM) [LOINC Mapping Validator](https://github.com/lhncbc/loinc-mapping-validator). This tool checks whether clinical record LOINC codes match their associated units, offering both a modular core validation library and a memory-efficient CLI for batch processing large datasets.
+This crate ships both:
 
-## The Modernization Story
+- a **library** you can embed anywhere  
+- a **CLI** that can chew through multi‑million‑row CSVs without breaking a sweat  
 
-Data engineering teams struggle to run legacy research scripts on massive healthcare datasets. This project transforms the original Node.js reference tool into a lightning-fast, zero-overhead Rust crate. By leveraging embedded JSON lookups via `include_str!`, streaming CSV parsers, and thread-pool parallelism via `rayon`, it scales across multi-core systems while preserving complete functional parity with the NLM standard.
+All while staying fully aligned with the NLM reference behavior.
 
 ---
 
-## Crate Architecture
+## **Why This Exists**
 
-The project is structured as a dual library and binary workspace, allowing other Rust projects to embed the validation engine:
+Healthcare teams often inherit old validation scripts that choke on real‑world data sizes.  
+The original validator was a Node.js research tool — good for demos, not for production pipelines.
 
-* **`lib.rs`**: Exposes reusable modules (`validator`, `cli`, `notes`, `output`, `stats`).
-* **`main.rs`**: Provides the binary CLI frontend driving parallel chunk processing.
-* **Tests**: Comprehensive integration and parity test suites (`tests/integration_tests.rs`) validating edge cases against the NLM behavior.
+This Rust edition fixes that:
 
-### Library Usage Example
+- everything is embedded at compile time (`include_str!`)  
+- UCUM + LOINC validation runs at native speed  
+- CSV rows stream in constant memory  
+- Rayon parallelism scales across all cores  
+- strict mode matches NLM’s exact behavior  
+
+Same logic.  
+Modern engine.
+
+---
+
+## **Crate Layout**
+
+The project is a dual library/binary workspace:
+
+- **`lib.rs`** — exposes reusable modules:  
+  `validator`, `cli`, `notes`, `output`, `stats`
+- **`main.rs`** — the CLI frontend  
+- **`tests/`** — integration + parity tests matching NLM behavior
+
+Everything is designed so you can either:
+
+- call the validator directly from Rust  
+- or run the CLI on huge CSVs
+
+---
+
+## **Library Usage**
 
 ```rust
 use loinc_validator_rs::validator::LoincValidator;
@@ -27,77 +56,141 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let validator = LoincValidator::new_with_strict(LOINC_JSON, MAPPING_JSON, false)?;
     let result = validator.validate_loinc_unit("18833-4", "kg");
-    
+
     println!("Unit Status: {}", result.unit_status.as_str());
     Ok(())
 }
-
 ```
 
 ---
 
-## The Library API
+## **What the Library Actually Does**
 
-### Core Functions
+### **Core Validation**
+`validate_loinc_unit(loinc, unit)` returns:
 
-* **`validate_loinc_unit(loinc: &str, unit: &str)`**: Validates whether a given LOINC code and unit pair correspond.
-* **Inputs**:
-* `loinc`: The LOINC number to check.
-* `unit`: The UCUM or custom unit string.
+- the normalized unit  
+- UCUM validation status  
+- LOINC correctness  
+- substituted UCUM unit (if a synonym matched)  
+- human‑readable notes explaining everything  
 
+### **Unit Validation Status**
+- **VALID** — UCUM says yes  
+- **InvalidFixed** — not UCUM, but a known synonym maps to a valid UCUM unit  
+- **InvalidUnknown** — not UCUM, no synonym  
+- **MissingUnit** — empty input
 
-* **Outputs**: A result struct containing the input fields, status codes, and recommended UCUM substitutions (`substituted_unit`).
-
-### Validation Status Codes
-
-* **Unit Validation Status (`UnitVldStatus`)**:
-* `VALID`: The unit is a valid UCUM unit.
-* `InvalidFixed`: Not a UCUM unit, but a known mapping exists under `substituted_unit`.
-* `InvalidUnknown`: Not a UCUM unit and no known mapping exists.
-* `MissingUnit`: The unit input was left blank.
-
-
-* **LOINC Mapping Status (`LoincVldStatus`)**:
-* `CORRECT`: The LOINC code matches the unit.
-* `INCORRECT`: The LOINC code does not match the unit.
-* `UNKNOWN`: Unit information is unavailable for the given LOINC code.
-* `MissingLoinc`: The LOINC number was left blank.
-
-
+### **LOINC Mapping Status**
+- **CORRECT** — LOINC allows this UCUM unit  
+- **INCORRECT** — LOINC exists but doesn’t allow it  
+- **UNKNOWN** — LOINC exists but has no unit info  
+- **MissingLoinc** — empty input
 
 ---
 
-## The Command-Line Interface (CLI)
+## **Implemented Features (Important)**
 
-The CLI tool batch-validates multi-megabyte CSV files line-by-line, appending validation results and explanatory notes to your output schema.
+These were missing from your README before — now they’re included.
 
-### Usage Syntax
+### **UCUM Validation**
+Full UCUM grammar support, including:
+
+- `{cells}` arbitrary units  
+- `%`  
+- `mg`, `g`, `mL`, etc.
+
+### **Synonym Substitution Layer**
+Maps common clinical units to UCUM:
+
+- `"milligrams"` → `"mg"`  
+- `"grams"` → `"g"`  
+- `"milliliters"` → `"mL"`  
+- `"cells"` → `"{cells}"`
+
+### **Advanced Normalization**
+Handles real‑world mess:
+
+- trimming  
+- tabs  
+- NBSP (`\u{00A0}`)  
+- lowercasing  
+- bracket stripping  
+- preserves ZWSP (`\u{200B}`) to avoid false positives
+
+### **Strict Mode**
+Exact UCUM compliance:
+
+- no heuristic substitutions  
+- no fallback normalization  
+- matches NLM strict behavior
+
+### **Embedded JSON Datasets**
+LOINC + UCUM mapping data is compiled in:
+
+- zero runtime I/O  
+- instant startup  
+- portable binary
+
+### **Detailed Notes System**
+Every validation result includes:
+
+- a unit note  
+- a LOINC note  
+- explanations for each status
+
+### **Parity Test Suite**
+Integration tests ensure:
+
+- UCUM parity  
+- synonym parity  
+- strict‑mode parity  
+- LOINC correctness parity  
+- edge‑case handling
+
+---
+
+## **CLI Usage**
 
 ```bash
-loinc-validator-rs -i <input-csv-file> -l <loinc-column-name> -u <unit-column-name> [-o <output-file>]
-
+loinc-validator-rs \
+  -i input.csv \
+  -l LOINC_COLUMN \
+  -u UNIT_COLUMN \
+  -o output.csv
 ```
 
-### Input Requirements
+### **Input Requirements**
+- CSV with header row  
+- LOINC + unit columns present  
+- Excel‑compatible comma‑delimited format
 
-* Standard CSV file format (tested against Microsoft Excel comma-delimited layouts).
-* Must include a header row containing the specified LOINC and unit column names.
+### **Output Columns**
+The CLI appends:
 
-### Output File Format
-
-The generated CSV retains all original columns and appends 5 validation metadata fields:
-
-* `LMV_UNIT_STATUS`: Validation code for the unit.
-* `LMV_LOINC_STATUS`: Validation code for the LOINC mapping.
-* `LMV_SUBSTITUTED_UNIT`: Suggested UCUM unit replacement if applicable.
-* `LMV_UNIT_NOTE`: Explanatory description of the unit status.
-* `LMV_LOINC_NOTE`: Explanatory description of the LOINC status.
+- `LMV_UNIT_STATUS`  
+- `LMV_LOINC_STATUS`  
+- `LMV_SUBSTITUTED_UNIT`  
+- `LMV_UNIT_NOTE`  
+- `LMV_LOINC_NOTE`
 
 ---
 
-## Technical Architecture
+## **Technical Architecture**
 
-* **Fast Data Loading**: Embedded JSON datasets (`loinc_unit.json` and `unit_to_ucum_mapping.json`) are parsed at startup using `serde_json` into read-only hash maps.
-* **Low Memory Footprint**: Uses the `csv` crate to stream rows in chunks, preventing out-of-memory errors on massive production files.
-* **Parallel Processing**: Powered by `rayon` to distribute row validation across available CPU threads via custom `fold`/`reduce` pipelines.
-* **Strict Parity**: Tested against native Rust integration suites verifying absolute behavior alignment with reference datasets.
+### **Fast Data Loading**
+JSON datasets are embedded and parsed once at startup.
+
+### **Streaming CSV Processing**
+Rows are streamed in chunks — no full‑file loading.
+
+### **Parallel Validation**
+Rayon distributes row validation across all CPU cores.
+
+### **Strict Parity**
+Behavior matches the NLM reference validator, including:
+
+- UCUM edge cases  
+- synonym behavior  
+- strict mode  
+- LOINC correctness rules
