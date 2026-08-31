@@ -164,3 +164,27 @@ fn test_short_flags() {
     assert!(args.strict);
     assert_eq!(args.format, OutputFormat::Json);
 }
+
+#[test]
+fn test_new_cli_flags() {
+    let args = Args::parse_from([
+        "prog",
+        "--input-file",
+        "in.csv",
+        "--loinc-column",
+        "loinc",
+        "--unit-column",
+        "unit",
+        "--enable-canonicalization",
+        "--enable-suggestions",
+        "--format",
+        "jsonl",
+        "--stats-output",
+        "stats.json",
+    ]);
+
+    assert!(args.enable_canonicalization);
+    assert!(args.enable_suggestions);
+    assert_eq!(args.format, OutputFormat::Jsonl);
+    assert_eq!(args.stats_output.as_deref(), Some("stats.json"));
+}

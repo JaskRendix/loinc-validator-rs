@@ -1,5 +1,3 @@
-// tests/output_tests.rs
-
 use loinc_validator_rs::cli::OutputFormat;
 use loinc_validator_rs::output::{ProcessedOutput, write_outputs};
 
@@ -129,4 +127,22 @@ fn write_outputs_does_not_panic_on_large_input() {
     let lines: Vec<&str> = result.trim().split('\n').collect();
 
     assert_eq!(lines.len(), 10_000);
+}
+
+#[test]
+fn write_jsonl_outputs() {
+    let mut buffer = Vec::new();
+    let outputs = vec![
+        ProcessedOutput::JsonString("{\"a\":1}".into()),
+        ProcessedOutput::JsonString("{\"b\":2}".into()),
+    ];
+
+    write_outputs(&mut buffer, &outputs, OutputFormat::Jsonl).unwrap();
+
+    let result = String::from_utf8(buffer).unwrap();
+    let lines: Vec<&str> = result.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0], "{\"a\":1}");
+    assert_eq!(lines[1], "{\"b\":2}");
 }

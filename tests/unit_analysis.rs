@@ -117,3 +117,32 @@ fn test_edge_cases() {
         assert_eq!(analysis.active_unit, expected_active);
     }
 }
+
+#[test]
+fn test_substitution_and_strict_behavior() {
+    let cfg = ValidatorConfig {
+        strict: true,
+        allow_substitution: false,
+        enable_canonicalization: false,
+        enable_suggestions: false,
+    };
+    let map = empty_map();
+
+    let analysis = analyze_unit("unknown_unit", &cfg, &map);
+    assert_eq!(analysis.status, UnitVldStatus::InvalidUnknown);
+    assert!(analysis.substituted.is_none());
+}
+
+#[test]
+fn test_trailing_punctuation_edge_cases() {
+    let cfg = make_cfg();
+    let map = empty_map();
+
+    let cases = vec![("mg,", "mg"), ("g;", "g"), ("ml.", "ml")];
+
+    for (input, expected_active) in cases {
+        let analysis = analyze_unit(input, &cfg, &map);
+        assert_eq!(analysis.active_unit, expected_active);
+        assert_eq!(analysis.status.as_str(), "VALID");
+    }
+}

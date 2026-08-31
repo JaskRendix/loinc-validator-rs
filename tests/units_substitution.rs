@@ -99,3 +99,41 @@ fn test_synonym_mapping() {
         assert_eq!(res.loinc_status, expected_loinc_status);
     }
 }
+
+#[test]
+fn test_synonym_case_and_punctuation_variations() {
+    let validator = get_validator().unwrap();
+
+    let cases = vec![
+        (
+            "18833-4",
+            "MILLIGRAMS",
+            UnitVldStatus::VALID,
+            Some(LoincVldStatus::INCORRECT),
+        ),
+        (
+            "18833-4",
+            "Percent",
+            UnitVldStatus::VALID,
+            Some(LoincVldStatus::INCORRECT),
+        ),
+        (
+            "18833-4",
+            "milligrams.",
+            UnitVldStatus::VALID,
+            Some(LoincVldStatus::INCORRECT),
+        ),
+        (
+            "18833-4",
+            "grams;",
+            UnitVldStatus::VALID,
+            Some(LoincVldStatus::INCORRECT),
+        ),
+    ];
+
+    for (loinc, unit, expected_unit_status, expected_loinc_status) in cases {
+        let res = validator.validate_loinc_unit(loinc, unit);
+        assert_eq!(res.unit_status, expected_unit_status);
+        assert_eq!(res.loinc_status, expected_loinc_status);
+    }
+}

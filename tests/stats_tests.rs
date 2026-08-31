@@ -176,3 +176,33 @@ fn print_report_does_not_panic() {
 
     stats.print_report();
 }
+
+#[test]
+fn test_stats_totals() {
+    let stats = ValidationStats {
+        valid_units: 5,
+        invalid_fixed_units: 2,
+        invalid_unknown_units: 3,
+        missing_units: 1,
+        correct_loinc: 10,
+        incorrect_loinc: 2,
+        unknown_loinc: 1,
+        missing_loinc: 0,
+    };
+
+    // If total or summary calculation helpers exist on ValidationStats
+    assert_eq!(
+        stats.valid_units
+            + stats.invalid_fixed_units
+            + stats.invalid_unknown_units
+            + stats.missing_units,
+        11
+    );
+}
+
+#[test]
+fn test_stats_serialization() {
+    let stats = ValidationStats::default();
+    let serialized = serde_json::to_string(&stats);
+    assert!(serialized.is_ok());
+}

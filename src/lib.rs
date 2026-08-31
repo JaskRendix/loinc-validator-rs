@@ -6,3 +6,6 @@ pub mod output;
 pub mod stats;
 pub mod unit_analysis;
 pub mod validator;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;

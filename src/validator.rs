@@ -71,6 +71,7 @@ pub struct LoincValidator {
     units_to_ucum: FxHashMap<String, String>,
     config: ValidatorConfig,
     loinc_version: Option<String>,
+    loinc_synonyms: FxHashMap<String, String>,
 }
 
 impl LoincValidator {
@@ -94,6 +95,7 @@ impl LoincValidator {
             units_to_ucum,
             config,
             loinc_version,
+            loinc_synonyms: FxHashMap::default(),
         })
     }
 
@@ -108,6 +110,11 @@ impl LoincValidator {
         };
 
         Self::new_with_config(loinc_json, mapping_json, cfg)
+    }
+
+    pub fn with_loinc_synonyms(mut self, synonyms: FxHashMap<String, String>) -> Self {
+        self.loinc_synonyms = synonyms;
+        self
     }
 
     pub fn with_strict(mut self, strict: bool) -> Self {
@@ -131,10 +138,8 @@ impl LoincValidator {
         let trimmed_loinc = self.normalize_loinc(loinc);
         let trimmed_unit = unit.trim();
 
-        // NEW: analysis now includes canonicalization, synonyms, suggestions
         let analysis: UnitAnalysis = analyze_unit(trimmed_unit, &self.config, &self.units_to_ucum);
 
-        // Handle missing LOINC
         if trimmed_loinc.is_empty() {
             let loinc_status = if self.config.strict {
                 Some(LoincVldStatus::INCORRECT)
@@ -151,12 +156,16 @@ impl LoincValidator {
             };
         }
 
-        // LOINC lookup
-        let loinc_status = match self.loinc_to_units.get(trimmed_loinc.as_str()) {
+        // Check primary LOINC, falling back to related/synonym codes if configured
+        let lookup_key = self
+            .loinc_synonyms
+            .get(&trimmed_loinc)
+            .unwrap_or(&trimmed_loinc);
+
+        let loinc_status = match self.loinc_to_units.get(lookup_key.as_str()) {
             None => Some(LoincVldStatus::UNKNOWN),
 
             Some(units_set) => {
-                // NEW: analysis.status now includes canonicalization + synonyms
                 if analysis.status == UnitVldStatus::InvalidUnknown {
                     if self.config.strict {
                         Some(LoincVldStatus::INCORRECT)

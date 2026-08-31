@@ -1,6 +1,7 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use loinc_validator_rs::cli::{Args, OutputFormat};
+use loinc_validator_rs::config::ValidatorConfig;
 use loinc_validator_rs::notes::{get_loinc_note, get_unit_note};
 use loinc_validator_rs::output::{JsonRecordOutput, ProcessedOutput, write_outputs};
 use loinc_validator_rs::stats::ValidationStats;
@@ -15,7 +16,15 @@ const LOINC_JSON: &str = include_str!("data/loinc_unit.json");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let validator = LoincValidator::new_with_strict(LOINC_JSON, MAPPING_JSON, args.strict)?;
+
+    let config = ValidatorConfig {
+        strict: args.strict,
+        allow_substitution: args.allow_substitution,
+        enable_canonicalization: args.enable_canonicalization,
+        enable_suggestions: args.enable_suggestions,
+    };
+
+    let validator = LoincValidator::new_with_config(LOINC_JSON, MAPPING_JSON, config)?;
 
     let file = File::open(&args.input_file)?;
     let mut rdr = csv::Reader::from_reader(file);
@@ -102,6 +111,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     pb.finish_with_message("Processing complete!");
     writer.flush()?;
 
+    if let Some(stats_path) = args.stats_output {
+        let stats_json = global_stats.to_json()?;
+        std::fs::write(stats_path, stats_json)?;
+    }
+
     global_stats.print_report();
     Ok(())
 }
@@ -161,7 +175,7 @@ fn process_chunk(
                         row.push(loinc_note.to_string());
                         outputs.push(ProcessedOutput::CsvRow(row));
                     }
-                    OutputFormat::Json => {
+                    OutputFormat::Json | OutputFormat::Jsonl => {
                         let mut map = HashMap::new();
                         for (h, f) in header_strs.iter().zip(record.iter()) {
                             map.insert(*h, f);

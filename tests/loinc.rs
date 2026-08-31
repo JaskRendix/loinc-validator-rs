@@ -1,4 +1,5 @@
-use loinc_validator_rs::validator::{LoincVldStatus, UnitVldStatus, get_validator};
+use loinc_validator_rs::config::ValidatorConfig;
+use loinc_validator_rs::validator::{LoincValidator, LoincVldStatus, UnitVldStatus, get_validator};
 
 #[test]
 fn test_loinc_mapping_parity_extended() {
@@ -256,4 +257,24 @@ fn test_loinc_mapping_parity_strict() {
         assert_eq!(res.unit_status, expected_unit_status);
         assert_eq!(res.loinc_status, expected_loinc_status);
     }
+}
+
+#[test]
+fn test_unit_suggestions_and_canonicalization() {
+    const MAPPING_JSON: &str = r#"{"my_custom_unit": "kg"}"#;
+    const LOINC_JSON: &str = r#"{"18833-4": ["kg"]}"#;
+
+    let config = ValidatorConfig {
+        enable_canonicalization: true,
+        allow_substitution: true,
+        strict: false,
+        ..Default::default()
+    };
+
+    let validator = LoincValidator::new_with_config(LOINC_JSON, MAPPING_JSON, config).unwrap();
+
+    let res = validator.validate_loinc_unit("18833-4", "my_custom_unit");
+
+    assert_eq!(res.unit_status, UnitVldStatus::InvalidFixed);
+    assert!(res.substituted_unit.is_some());
 }

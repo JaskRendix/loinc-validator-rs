@@ -41,17 +41,14 @@ fn canonicalize_ucum(unit: &str) -> String {
 fn levenshtein(a: &str, b: &str) -> usize {
     let mut dp = vec![vec![0; b.len() + 1]; a.len() + 1];
 
-    // Initialize first column (Clippy-approved)
     for (i, row) in dp.iter_mut().enumerate().take(a.len() + 1) {
         row[0] = i;
     }
 
-    // Initialize first row (Clippy-approved, no E0499)
     for (j, cell) in dp[0].iter_mut().enumerate().take(b.len() + 1) {
         *cell = j;
     }
 
-    // Main DP loop (unchanged)
     for (i, ca) in a.chars().enumerate() {
         for (j, cb) in b.chars().enumerate() {
             let cost = if ca == cb { 0 } else { 1 };
@@ -86,7 +83,6 @@ pub fn analyze_unit(
     config: &ValidatorConfig,
     units_to_ucum: &FxHashMap<String, String>,
 ) -> UnitAnalysis {
-    // 1. Empty unit
     if trimmed_unit.trim().is_empty() {
         return UnitAnalysis {
             status: UnitVldStatus::MissingUnit,
@@ -100,16 +96,12 @@ pub fn analyze_unit(
         };
     }
 
-    // 2. Normalize Unicode whitespace + invisible chars
-    let mut unit = trimmed_unit.trim().replace('\u{00A0}', " "); // non-breaking space
+    let mut unit = trimmed_unit.trim().replace('\u{00A0}', " ");
     unit = unit.replace('\t', " ");
     unit = unit.replace('\r', "");
     unit = unit.replace('\n', "");
-
-    // 3. Strip trailing punctuation (common Excel/ETL artifact)
     unit = unit.trim_end_matches(['.', ',', ';']).to_string();
 
-    // 4. Handle bracketed UCUM units: {cells} → cells
     let is_bracketed = unit.starts_with('{') && unit.ends_with('}');
     let inner_raw = if is_bracketed {
         &unit[1..unit.len() - 1]
@@ -117,11 +109,8 @@ pub fn analyze_unit(
         &unit
     };
     let inner = inner_raw.trim();
-
-    // 5. Canonical lowercase version
     let lower_inner = inner.to_lowercase();
 
-    // 6. Synonym mapping (expandable)
     let mut normalized_inner = SYNONYMS
         .iter()
         .find_map(|(syn, canon)| {
@@ -133,19 +122,16 @@ pub fn analyze_unit(
         })
         .unwrap_or_else(|| inner.to_string());
 
-    // 7. LOINC unit synonyms
     for (syn, canon) in LOINC_UNIT_SYNONYMS {
         if normalized_inner.to_lowercase() == *syn {
             normalized_inner = canon.to_string();
         }
     }
 
-    // 8. Canonicalization
     if config.enable_canonicalization {
         normalized_inner = canonicalize_ucum(&normalized_inner);
     }
 
-    // 9. UCUM validation
     if is_valid_ucum(&normalized_inner) {
         return UnitAnalysis {
             status: UnitVldStatus::VALID,
@@ -155,7 +141,6 @@ pub fn analyze_unit(
         };
     }
 
-    // 10. Strict mode: no fallback, no substitution
     if config.strict {
         let suggestion = if config.enable_suggestions {
             suggest_unit(&normalized_inner, units_to_ucum)
@@ -171,7 +156,6 @@ pub fn analyze_unit(
         };
     }
 
-    // 11. Non-strict mode: try substitution map
     if config.allow_substitution {
         let mapped = lookup_substitution(&unit, units_to_ucum)
             .or_else(|| lookup_substitution(&lower_inner, units_to_ucum))
@@ -187,7 +171,6 @@ pub fn analyze_unit(
         }
     }
 
-    // 12. Unknown unit + suggestions
     let suggestion = if config.enable_suggestions {
         suggest_unit(&normalized_inner, units_to_ucum)
     } else {

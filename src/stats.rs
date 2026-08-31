@@ -1,4 +1,6 @@
-#[derive(Default, Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationStats {
     pub valid_units: usize,
     pub invalid_fixed_units: usize,
@@ -20,6 +22,10 @@ impl ValidationStats {
         self.incorrect_loinc += other.incorrect_loinc;
         self.unknown_loinc += other.unknown_loinc;
         self.missing_loinc += other.missing_loinc;
+    }
+
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
     }
 
     pub fn print_report(&self) {

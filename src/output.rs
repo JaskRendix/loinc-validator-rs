@@ -35,7 +35,7 @@ pub fn write_outputs<W: Write>(
             }
             csv_wtr.flush()?;
         }
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Jsonl => {
             for out in outputs {
                 if let ProcessedOutput::JsonString(json_str) = out {
                     writer.write_all(json_str.as_bytes())?;

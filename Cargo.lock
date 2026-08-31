@@ -264,6 +264,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ucum-units",
+ "wasm-bindgen",
 ]
 
 [[package]]
