@@ -10,22 +10,38 @@ permissions:
 jobs:
   rust:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v6
-      
+      - uses: actions/checkout@v7
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          
+
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
-        
+
+      - name: Install wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen CLI (includes test runner)
+        run: cargo install wasm-bindgen-cli
+
       - name: Check formatting
         run: cargo fmt --all -- --check
-        
+
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
-        
-      - name: Run tests
-        run: cargo test --all --verbose
+
+      - name: Build (native)
+        run: cargo build --all --all-features --locked --verbose
+
+      - name: Run tests (native)
+        run: cargo test --all --all-features --verbose
+
+      - name: Build (WASM)
+        run: cargo build --target wasm32-unknown-unknown --all-features
+
+      - name: Run tests (WASM)
+        run: wasm-bindgen-test-runner target/wasm32-unknown-unknown/debug/*.wasm
